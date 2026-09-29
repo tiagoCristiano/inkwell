@@ -395,7 +395,7 @@ end
 -- as TextViewer — centered, rounded, 30px smaller than the screen —
 -- with a title bar, a vertically scrollable column of rows and a ButtonTable footer.
 -- opts: title, subtitle, on_menu (☰ tap; no icon if nil), build_rows(row_w, container) ->
--- widgets no wider than row_w, buttons (ButtonTable rows; a "Fechar" row is always appended).
+-- widgets no wider than row_w, buttons (ButtonTable rows; no footer when empty — the title bar X closes).
 -- Returns the shown widget, for callers that need to UIManager:close() it.
 function Inkwell:showModal(opts)
     local Blitbuffer = require("ffi/blitbuffer")
@@ -425,23 +425,17 @@ function Inkwell:showModal(opts)
         close_callback = function() UIManager:close(container) end,
     }
 
-    local buttons = {}
-    for _idx, row in ipairs(opts.buttons or {}) do
-        table.insert(buttons, row)
-    end
-    table.insert(buttons, {
-        { text = _("Fechar"), callback = function() UIManager:close(container) end },
-    })
-    local button_table = ButtonTable:new{
+    local button_table = opts.buttons and #opts.buttons > 0 and ButtonTable:new{
         width = modal_w - 2 * Size.padding.default,
         zero_sep = true,
-        buttons = buttons,
+        buttons = opts.buttons,
     }
+    local footer_h = button_table and button_table:getSize().h or 0
 
     -- Rows leave room for the vertical scrollbar; wider rows would overflow the crop
     -- area and make ScrollableContainer add a horizontal scroll.
     local row_w = modal_w - ScrollableContainer:getScrollbarWidth()
-    local content_h = modal_h - titlebar:getHeight() - button_table:getSize().h
+    local content_h = modal_h - titlebar:getHeight() - footer_h
     local scroll = ScrollableContainer:new{
         dimen = Geom:new{ w = modal_w, h = content_h }, -- must be a Geom: its gesture check calls dimen:area()
         VerticalGroup:new(opts.build_rows(row_w, container)),
@@ -455,16 +449,16 @@ function Inkwell:showModal(opts)
         VerticalGroup:new{
             titlebar,
             scroll,
-            CenterContainer:new{
-                dimen = Geom:new{ w = modal_w, h = button_table:getSize().h },
+            button_table and CenterContainer:new{
+                dimen = Geom:new{ w = modal_w, h = footer_h },
                 button_table,
-            },
+            } or nil,
         },
     }
     -- Children are built before container is complete; without show_parent the
     -- scroll's setDirty targets nil and swipes never repaint.
     scroll.show_parent = container
-    button_table.show_parent = container
+    if button_table then button_table.show_parent = container end
     titlebar.show_parent = container
     container.cropping_widget = scroll
     container.covers_fullscreen = true -- UIManager skips repainting what's beneath
@@ -506,7 +500,7 @@ function Inkwell:buildFormFields(container, row_w, specs, on_submit)
     -- On DPad devices (desktop, Kindles with keys) InputText's tap calls this unguarded,
     -- expecting a FocusManager parent. No DPad focus here: nil skips its moveFocusTo.
     function container:getFocusableWidgetXY() end
-    -- The keyboard is its own window: close it along with the modal (X, Fechar, submit).
+    -- The keyboard is its own window: close it along with the modal (X, submit).
     function container:onCloseWidget()
         if current then current:onCloseKeyboard() end
     end
@@ -661,7 +655,8 @@ function Inkwell:wrapTappable(widget, on_tap)
 end
 
 -- Avatar + bold name + dim second line, as used by cards, people lists and notifications.
-function Inkwell:avatarHeader(username, avatar_url, name, subline, w, avatar_size)
+-- verified: a seal after the name (supporters, per the server's author_premium).
+function Inkwell:avatarHeader(username, avatar_url, name, subline, w, avatar_size, verified)
     local Avatar = require("avatar")
     local Blitbuffer = require("ffi/blitbuffer")
     local Font = require("ui/font")
@@ -674,10 +669,35 @@ function Inkwell:avatarHeader(username, avatar_url, name, subline, w, avatar_siz
 
     avatar_size = avatar_size or Screen:scaleBySize(40)
     local col_w = w - avatar_size - Size.span.horizontal_default
-    local col = VerticalGroup:new{
-        align = "left",
-        TextBoxWidget:new{ text = name, face = Font:getFace("cfont", 17), bold = true, width = col_w },
-    }
+    local name_face = Font:getFace("cfont", 17)
+    local name_widget
+    if verified then
+        -- Seal: white ✔ on a black circle, one line tall; the name is truncated to make room.
+        local CenterContainer = require("ui/widget/container/centercontainer")
+        local FrameContainer = require("ui/widget/container/framecontainer")
+        local TextWidget = require("ui/widget/textwidget")
+        local seal_size = math.floor(name_face.size * 0.9)
+        local seal = FrameContainer:new{
+            bordersize = 0,
+            padding = 0,
+            radius = math.floor(seal_size / 2),
+            background = Blitbuffer.COLOR_BLACK,
+            CenterContainer:new{
+                dimen = { w = seal_size, h = seal_size },
+                TextWidget:new{ text = "✔", face = Font:getFace("cfont", 10), fgcolor = Blitbuffer.COLOR_WHITE },
+            },
+        }
+        local gap = Size.span.horizontal_small
+        name_widget = HorizontalGroup:new{
+            align = "center",
+            TextWidget:new{ text = name, face = name_face, bold = true, max_width = col_w - seal_size - gap },
+            HorizontalSpan:new{ width = gap },
+            seal,
+        }
+    else
+        name_widget = TextBoxWidget:new{ text = name, face = name_face, bold = true, width = col_w }
+    end
+    local col = VerticalGroup:new{ align = "left", name_widget }
     if subline and subline ~= "" then
         table.insert(col, TextBoxWidget:new{
             text = subline,
@@ -686,9 +706,10 @@ function Inkwell:avatarHeader(username, avatar_url, name, subline, w, avatar_siz
             width = col_w,
         })
     end
+    local avatar = Avatar.widget(Avatar.ensureLocal(username, avatar_url), avatar_size, username)
     return HorizontalGroup:new{
         align = "top",
-        Avatar.widget(Avatar.ensureLocal(username, avatar_url), avatar_size, username),
+        avatar,
         HorizontalSpan:new{ width = Size.span.horizontal_default },
         LeftContainer:new{
             dimen = { w = col_w, h = math.max(avatar_size, col:getSize().h) },
@@ -765,7 +786,7 @@ function Inkwell:buildFeedCard(topic, card_w, full)
     local rows = {
         align = "left",
         self:avatarHeader(topic.author, topic.author_avatar_url,
-            displayName(topic.author_display_name, topic.author), subline, inner_w),
+            displayName(topic.author_display_name, topic.author), subline, inner_w, nil, topic.author_premium),
         VerticalSpan:new{ width = Size.span.vertical_default },
         FrameContainer:new{
             bordersize = Size.border.thin,
@@ -1243,11 +1264,8 @@ function Inkwell:loadHomePage(offset, feed)
         end
         local page, page_err = ForumClient.listTopics(offset, HOME_PAGE_SIZE, feed)
         local state = { feed = feed, offset = offset, page = page }
-        if page and offset == 0 and (feed == "all" or #page.topics == 0) then
-            state.suggestions = ForumClient.suggestions()
-            if feed == "all" then
-                state.trending = ForumClient.trending()
-            end
+        if page and offset == 0 and feed == "all" then
+            state.trending = ForumClient.trending()
         end
         Trapper:clear()
         if not page then
@@ -1259,23 +1277,8 @@ function Inkwell:loadHomePage(offset, feed)
     end)
 end
 
-function Inkwell:suggestionRows(users, row_w, container, rerender, limit)
-    local rows = { self:sectionRow(_("Quem seguir"), row_w) }
-    for i, user in ipairs(users) do
-        if i > limit then
-            table.insert(rows, self:buttonRow({
-                { text = _("Ver mais sugestões"), callback = function() self:openPeople(_("Quem seguir"), ForumClient.suggestions) end },
-            }, row_w, container))
-            break
-        end
-        table.insert(rows, self:personRow(user, row_w, container, rerender))
-    end
-    table.insert(rows, self:separator(row_w))
-    return rows
-end
-
 -- Social timeline with two tabs: "Seguindo" (people you follow) and "Descobrir" (everyone,
--- plus trending tags/books and who to follow). Paginated HOME_PAGE_SIZE posts at a time;
+-- plus trending tags/books). Paginated HOME_PAGE_SIZE posts at a time;
 -- each page rebuilds the whole screen.
 function Inkwell:showHome(state)
     local page = state.page
@@ -1325,9 +1328,6 @@ function Inkwell:showHome(state)
                         function() self:openBook(b.title, b.author) end))
                 end
                 table.insert(rows, self:separator(row_w))
-            end
-            if state.suggestions and #state.suggestions > 0 then
-                util.arrayAppend(rows, self:suggestionRows(state.suggestions, row_w, container, rerender, 3))
             end
             local empty = feed == "following"
                 and _("Nada por aqui ainda. Siga leitores para ver os posts deles, ou veja a aba Descobrir.")
@@ -1807,49 +1807,6 @@ function Inkwell:showPeople(title, users)
     }
 end
 
-function Inkwell:openShelf(username)
-    self:load(function() return ForumClient.getUserProfile(username) end, function(profile)
-        self:showShelf(profile)
-    end)
-end
-
--- "Lendo", "Quero ler" and "Lidos" sections; each book opens its page (where it can be
--- moved between them or removed).
-function Inkwell:showShelf(profile)
-    local is_me = profile.username == ForumClient.username()
-    self:showModal{
-        title = is_me and _("Minha estante") or T(_("Estante de @%1"), profile.username),
-        on_menu = function() self:openNavMenu() end,
-        build_rows = function(row_w)
-            local by_status = { want = {}, reading = {}, finished = {} }
-            for _idx, entry in ipairs(profile.shelf or {}) do
-                table.insert(by_status[entry.status] or by_status.reading, entry)
-            end
-            local rows = {}
-            if #(profile.shelf or {}) == 0 then
-                table.insert(rows, self:textRow(is_me
-                    and _("Sua estante está vazia. Abra o Inkwell de dentro de um livro e ele aparece aqui como \"lendo agora\".")
-                    or _("Nenhum livro na estante."), row_w, { dim = true }))
-            end
-            local function section(title, entries, with_progress)
-                if #entries == 0 then return end
-                table.insert(rows, self:sectionRow(T("%1 (%2)", title, #entries), row_w))
-                for _idx, entry in ipairs(entries) do
-                    local text = bookLine(entry.book_title, entry.book_author)
-                    text = with_progress and T(_("%1 · %2%"), text, entry.progress) or text
-                    table.insert(rows, self:wrapTappable(self:textRow(text, row_w),
-                        function() self:openBook(entry.book_title, entry.book_author) end))
-                    table.insert(rows, self:separator(row_w))
-                end
-            end
-            section(_("Lendo"), by_status.reading, true)
-            section(_("Quero ler"), by_status.want, false)
-            section(_("Lidos"), by_status.finished, false)
-            return rows
-        end,
-    }
-end
-
 -- author (optional) tells apart different books with the same title.
 function Inkwell:openBook(title, author)
     self:load(function() return ForumClient.getBook(title, author) end, function(book) self:showBook(book) end)
@@ -2023,12 +1980,10 @@ function Inkwell:openNavMenu(on_refresh)
     add(_("Buscar"), function() self:openSearch() end)
     add(_("Atividade"), function() self:openActivity() end)
     add(_("Meu perfil"), function() self:openUserProfile(me) end)
-    add(_("Minha estante"), function() self:openShelf(me) end)
     add(_("Meus posts"), function() self:openMyPosts() end)
     gap()
     add(_("Seguindo"), function() self:openPeopleOf(me, "following") end)
     add(_("Seguidores"), function() self:openPeopleOf(me, "followers") end)
-    add(_("Quem seguir"), function() self:openPeople(_("Quem seguir"), ForumClient.suggestions) end)
     add(_("Resenhas"), function() self:openReviews() end)
     add(_("Comunidades"), function() self:openCommunities() end)
     gap()

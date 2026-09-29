@@ -25,7 +25,6 @@ local EN = {
     ["Carregando…"] = "Loading…",
     ["Falha: %1"] = "Failed: %1",
     ["Falha ao buscar dados: %1"] = "Failed to fetch data: %1",
-    ["Fechar"] = "Close",
     ["Cancelar"] = "Cancel",
     ["Enviar"] = "Send",
     ["Salvar"] = "Save",
@@ -36,8 +35,6 @@ local EN = {
     ["Atualizar"] = "Refresh",
     ["Buscar"] = "Search",
     ["Nenhum resultado."] = "No results.",
-    ["Sim"] = "Yes",
-    ["Não"] = "No",
 
     -- highlight dialog
     ["Publicar no Inkwell"] = "Post to Inkwell",
@@ -76,8 +73,6 @@ local EN = {
     ["pág. %1 de %2"] = "page %1 of %2",
     ["Descobrir"] = "Discover",
     ["Em alta"] = "Trending",
-    ["Quem seguir"] = "Who to follow",
-    ["Ver mais sugestões"] = "More suggestions",
     ["Nada por aqui ainda. Siga leitores para ver os posts deles, ou veja a aba Descobrir."] =
         "Nothing here yet. Follow readers to see their posts, or check the Discover tab.",
     ["Posts recentes"] = "Recent posts",
@@ -145,13 +140,6 @@ local EN = {
     ["Seguidores de @%1"] = "@%1's followers",
     ["@%1 segue"] = "@%1 follows",
     ["Ninguém por aqui ainda."] = "Nobody here yet.",
-    ["Minha estante"] = "My shelf",
-    ["Estante de @%1"] = "@%1's shelf",
-    ["Sua estante está vazia. Abra o Inkwell de dentro de um livro e ele aparece aqui como \"lendo agora\"."] =
-        "Your shelf is empty. Open Inkwell from inside a book and it shows up here as \"reading now\".",
-    ["Nenhum livro na estante."] = "No books on the shelf.",
-    ["Lendo"] = "Reading",
-    ["Lidos"] = "Read",
     ["Quero ler"] = "Want to read",
     ["quer ler"] = "wants to read",
     ["Tirar da estante"] = "Remove from shelf",
@@ -277,22 +265,6 @@ local EN = {
     ["Avatar vazio"] = "Empty avatar",
     ["Não foi possível salvar o avatar localmente"] = "Couldn't save the avatar locally",
 
-    -- showcase (dev)
-    ["Showcase de componentes"] = "Component showcase",
-    ["Exemplo de ButtonDialog"] = "ButtonDialog example",
-    ["Ação 1"] = "Action 1",
-    ["Ação 2"] = "Action 2",
-    ["Exemplo de ConfirmBox. Confirmar?"] = "ConfirmBox example. Confirm?",
-    ["Exemplo de InfoMessage."] = "InfoMessage example.",
-    ["Exemplo de InputDialog"] = "InputDialog example",
-    ["Digite algo…"] = "Type something…",
-    ["Exemplo de MultiInputDialog"] = "MultiInputDialog example",
-    ["Campo 1"] = "Field 1",
-    ["Campo 2 (senha)"] = "Field 2 (password)",
-    ["Exemplo de Menu (lista)"] = "Menu (list) example",
-    ["Item simples"] = "Simple item",
-    ["Item com mandatory"] = "Item with mandatory",
-    ["Item esmaecido"] = "Dimmed item",
 }
 
 local I18n = {}

@@ -370,10 +370,6 @@ function ForumClient.people(username, which)
     return fetch("GET", "/users/" .. url.escape(username) .. "/" .. which, "users")
 end
 
-function ForumClient.suggestions()
-    return fetch("GET", "/me/suggestions", "users")
-end
-
 -- Returns { notifications, unread }.
 function ForumClient.notifications()
     return fetch("GET", "/me/notifications")

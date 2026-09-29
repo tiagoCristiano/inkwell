@@ -1,7 +1,7 @@
 # Inkwell for KOReader
 
 A KOReader plugin that works as a **client** for a social network for readers: feed, posts,
-reviews, highlighted quotes, comments, likes, followers, communities and a reading shelf.
+reviews, highlighted quotes, comments, likes, followers and communities.
 
 ## It's just a client
 
@@ -18,7 +18,7 @@ Any server that implements the contract below works with this plugin.
 
 1. Copy the `inkwell.koplugin/` folder to `koreader/plugins/` on the device.
 2. Restart KOReader.
-3. Open **Inkwell** from the menu.
+3. Open **Inkwell** from the tool menu.
 
 ## Configuring the API
 
@@ -51,7 +51,6 @@ Request and response bodies are JSON.
 | anything else | shows `{ "error": "message" }`, if present            |
 
 The plugin shows the `error` text as-is, so the server writes the final user-facing message
-(e.g. "You've reached today's post limit").
 
 ### Authentication
 
@@ -62,7 +61,7 @@ The plugin shows the `error` text as-is, so the server writes the final user-fac
 
 ### UI flags
 
-The client has no permission logic: it never looks at roles, plans or ownership. The server
+The client has no permission logic. The server
 decides everything and sends the result as flags; the client only shows a button when its flag
 is `true`. Hiding a button is cosmetic, so every route must still check authorization on the
 server.
@@ -96,7 +95,6 @@ server.
 | GET / PUT          | `/me/profile`                                       | my profile                                                   |
 | PUT                | `/me/avatar`                                        | avatar (`{ data: base64, content_type }` → `{ avatar_url }`) |
 | GET                | `/me/posts`                                         | my posts                                                     |
-| GET                | `/me/suggestions`                                   | who to follow                                                |
 | GET                | `/me/notifications` · POST `/me/notifications/read` | activity                                                     |
 | PUT                | `/me/reading`                                       | progress of the open book                                    |
 | GET                | `/users/:username`                                  | public profile                                               |
