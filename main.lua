@@ -639,19 +639,41 @@ function Inkwell:wrapTappable(widget, on_tap)
         dimen = Geom:new{ w = size.w, h = size.h },
         widget,
     }
-    wrapped.ges_events = {
-        Tap = {
-            GestureRange:new{
-                ges = "tap",
-                range = wrapped.dimen,
+    -- Matched here instead of through ges_events: those re-dispatch a "Tap" event that is
+    -- handed to every child first, so a nested tappable (the ♥ inside a feed card) would
+    -- fire on any tap on the card. Gestures reach the innermost wrapper first; it only
+    -- claims taps inside its own box.
+    local tap = GestureRange:new{ ges = "tap", range = wrapped.dimen }
+    function wrapped:onGesture(ev)
+        if tap:match(ev) then
+            on_tap()
+            return true
+        end
+    end
+    return wrapped
+end
+
+-- Supporter seal: white ✔ on a black circle, sized to sit next to text in `face`.
+local function verifiedSeal(face)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local TextWidget = require("ui/widget/textwidget")
+    local size = math.floor(face.size * 0.9)
+    return FrameContainer:new{
+        bordersize = 0,
+        padding = 0,
+        radius = math.floor(size / 2),
+        background = Blitbuffer.COLOR_BLACK,
+        CenterContainer:new{
+            dimen = { w = size, h = size },
+            TextWidget:new{
+                text = "✔",
+                face = require("ui/font"):getFace("cfont", math.max(8, math.floor(size * 0.6))),
+                fgcolor = Blitbuffer.COLOR_WHITE,
             },
         },
     }
-    function wrapped:onTap()
-        on_tap()
-        return true
-    end
-    return wrapped
 end
 
 -- Avatar + bold name + dim second line, as used by cards, people lists and notifications.
@@ -672,25 +694,12 @@ function Inkwell:avatarHeader(username, avatar_url, name, subline, w, avatar_siz
     local name_face = Font:getFace("cfont", 17)
     local name_widget
     if verified then
-        -- Seal: white ✔ on a black circle, one line tall; the name is truncated to make room.
-        local CenterContainer = require("ui/widget/container/centercontainer")
-        local FrameContainer = require("ui/widget/container/framecontainer")
         local TextWidget = require("ui/widget/textwidget")
-        local seal_size = math.floor(name_face.size * 0.9)
-        local seal = FrameContainer:new{
-            bordersize = 0,
-            padding = 0,
-            radius = math.floor(seal_size / 2),
-            background = Blitbuffer.COLOR_BLACK,
-            CenterContainer:new{
-                dimen = { w = seal_size, h = seal_size },
-                TextWidget:new{ text = "✔", face = Font:getFace("cfont", 10), fgcolor = Blitbuffer.COLOR_WHITE },
-            },
-        }
+        local seal = verifiedSeal(name_face)
         local gap = Size.span.horizontal_small
         name_widget = HorizontalGroup:new{
             align = "center",
-            TextWidget:new{ text = name, face = name_face, bold = true, max_width = col_w - seal_size - gap },
+            TextWidget:new{ text = name, face = name_face, bold = true, max_width = col_w - seal:getSize().w - gap },
             HorizontalSpan:new{ width = gap },
             seal,
         }
@@ -740,15 +749,72 @@ function Inkwell:quoteBox(quoted, w)
     }
 end
 
--- One post card: avatar + name + "@handle · há 2h", then the text box (optional bold
--- title, body, quoted post), then a dim "book · #tags" line. full = post screen: shows
--- the community line and never truncates (feed summaries already come trimmed).
-function Inkwell:buildFeedCard(topic, card_w, full)
-    local Blitbuffer = require("ffi/blitbuffer")
+-- The post's content, top to bottom: ★ rating, bold title, text, quoted post. compact = feed
+-- list sizes (smaller type, so a screen holds more posts).
+function Inkwell:postBody(topic, w, compact)
     local Font = require("ui/font")
-    local FrameContainer = require("ui/widget/container/framecontainer")
     local Size = require("ui/size")
     local TextBoxWidget = require("ui/widget/textboxwidget")
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
+
+    local body = VerticalGroup:new{ align = "left" }
+    if topic.rating then
+        table.insert(body, TextBoxWidget:new{
+            text = stars(topic.rating), face = Font:getFace("cfont", compact and 14 or 18), width = w,
+        })
+    end
+    if topic.title and topic.title ~= "" then
+        table.insert(body, TextBoxWidget:new{
+            text = topic.title, face = Font:getFace("cfont", compact and 16 or 17), bold = true, width = w,
+        })
+    end
+    if topic.selftext and topic.selftext ~= "" then
+        table.insert(body, TextBoxWidget:new{
+            text = topic.selftext, face = Font:getFace("cfont", compact and 15 or 16), width = w,
+        })
+    end
+    if topic.quoted then
+        table.insert(body, VerticalSpan:new{ width = Size.span.vertical_default })
+        table.insert(body, self:quoteBox(topic.quoted, w))
+    end
+    return body
+end
+
+-- Dim "book · #tags" line, next to the book's cover thumbnail when there is one; nil if empty.
+function Inkwell:postMeta(topic, w, cover_h)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local Size = require("ui/size")
+    local TextBoxWidget = require("ui/widget/textboxwidget")
+
+    local meta = {}
+    table.insert(meta, bookLine(topic.book_title, topic.book_author))
+    table.insert(meta, formatHashtags(topic.hashtags))
+    if #meta == 0 then return nil end
+    local cover = topic.book_cover_url and topic.book_title
+        and require("avatar").cover(topic.book_cover_url, math.floor(cover_h * 2 / 3), cover_h)
+    local gap = Size.span.horizontal_default
+    local text = TextBoxWidget:new{
+        text = table.concat(meta, " · "),
+        face = require("ui/font"):getFace("cfont", 13),
+        fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+        width = cover and (w - cover:getSize().w - gap) or w,
+    }
+    if not cover then return text end
+    return require("ui/widget/horizontalgroup"):new{
+        align = "center",
+        cover,
+        require("ui/widget/horizontalspan"):new{ width = gap },
+        text,
+    }
+end
+
+-- The post screen's card: avatar + name + "@handle · há 2h · em <community>", the body in a
+-- light frame, then the book/tags line with a big cover. Never truncates.
+function Inkwell:buildFeedCard(topic, card_w)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local Size = require("ui/size")
     local VerticalGroup = require("ui/widget/verticalgroup")
     local VerticalSpan = require("ui/widget/verticalspan")
 
@@ -756,76 +822,28 @@ function Inkwell:buildFeedCard(topic, card_w, full)
     local inner_w = card_w - 2 * pad
     -- FrameContainer's size ignores `width`: subtract border too or the card overflows.
     local text_w = inner_w - 2 * Size.padding.default - 2 * Size.border.thin
-
     local subline = T(_("@%1 · %2"), topic.author or "?", relativeTime(topic.created_at))
-    if topic.community and full then
+    if topic.community then
         subline = T(_("%1 · em %2"), subline, topic.community.title)
     end
-
-    local body = VerticalGroup:new{ align = "left" }
-    if topic.rating then
-        table.insert(body, TextBoxWidget:new{
-            text = stars(topic.rating), face = Font:getFace("cfont", 18), width = text_w,
-        })
-    end
-    if topic.title and topic.title ~= "" then
-        table.insert(body, TextBoxWidget:new{
-            text = topic.title, face = Font:getFace("cfont", 17), bold = true, width = text_w,
-        })
-    end
-    if topic.selftext and topic.selftext ~= "" then
-        table.insert(body, TextBoxWidget:new{
-            text = topic.selftext, face = Font:getFace("cfont", 16), width = text_w,
-        })
-    end
-    if topic.quoted then
-        table.insert(body, VerticalSpan:new{ width = Size.span.vertical_default })
-        table.insert(body, self:quoteBox(topic.quoted, text_w))
-    end
-
     local rows = {
         align = "left",
-        self:avatarHeader(topic.author, topic.author_avatar_url,
-            displayName(topic.author_display_name, topic.author), subline, inner_w, nil, topic.author_premium),
+        self:avatarHeader(topic.author, topic.author_avatar_url, displayName(topic.author_display_name, topic.author),
+            subline, inner_w, nil, topic.author_premium),
         VerticalSpan:new{ width = Size.span.vertical_default },
         FrameContainer:new{
             bordersize = Size.border.thin,
             color = Blitbuffer.COLOR_LIGHT_GRAY,
             padding = Size.padding.default,
             radius = Size.radius.window,
-            body,
+            self:postBody(topic, text_w),
         },
     }
-
-    local meta = {}
-    table.insert(meta, bookLine(topic.book_title, topic.book_author))
-    table.insert(meta, formatHashtags(topic.hashtags))
-    if #meta > 0 then
-        -- With a cover, the book line sits next to its thumbnail (bigger on the post screen).
-        local cover_h = Screen:scaleBySize(full and 150 or 72)
-        local cover = topic.book_cover_url and topic.book_title
-            and require("avatar").cover(topic.book_cover_url, math.floor(cover_h * 2 / 3), cover_h)
-        local gap = Size.span.horizontal_default
-        local meta_w = cover and (inner_w - cover:getSize().w - gap) or inner_w
-        local meta_box = TextBoxWidget:new{
-            text = table.concat(meta, " · "),
-            face = Font:getFace("cfont", 14),
-            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
-            width = meta_w,
-        }
+    local meta = self:postMeta(topic, inner_w, Screen:scaleBySize(150))
+    if meta then
         table.insert(rows, VerticalSpan:new{ width = Size.span.vertical_small })
-        if cover then
-            table.insert(rows, require("ui/widget/horizontalgroup"):new{
-                align = "center",
-                cover,
-                require("ui/widget/horizontalspan"):new{ width = gap },
-                meta_box,
-            })
-        else
-            table.insert(rows, meta_box)
-        end
+        table.insert(rows, meta)
     end
-
     return FrameContainer:new{
         width = card_w,
         bordersize = 0,
@@ -836,16 +854,96 @@ function Inkwell:buildFeedCard(topic, card_w, full)
     }
 end
 
--- A feed entry: tappable card (opens the post) + a ♥ / comments action row + separator.
+-- A feed entry, laid out like a social timeline: avatar on the left and everything else in
+-- one column beside it — "Name ✔ @handle · 2h", body, book/tags, then a dim "♡ 3  Comentários (5)"
+-- line (text taps, not buttons: content first). Tapping anywhere else opens the post.
 -- rerender() redraws the screen after a like changed the topic in place.
 function Inkwell:feedItem(topic, row_w, container, rerender)
+    local Avatar = require("avatar")
+    local Blitbuffer = require("ffi/blitbuffer")
+    local Font = require("ui/font")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local HorizontalSpan = require("ui/widget/horizontalspan")
+    local Size = require("ui/size")
+    local TextWidget = require("ui/widget/textwidget")
     local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
+
+    local pad = Size.padding.large
+    local avatar_size = Screen:scaleBySize(40)
+    local gap = Size.span.horizontal_default
+    local col_w = row_w - 2 * pad - avatar_size - gap
+    local space = Screen:scaleBySize(4) -- between the column's blocks
+    local dim = Blitbuffer.COLOR_DARK_GRAY
+
+    -- Name (bold) + seal + dim "@handle · 2h" on one line; the handle gives way first.
+    local name_face = Font:getFace("cfont", 16)
+    local name_line = HorizontalGroup:new{ align = "center" }
+    local name = TextWidget:new{
+        text = displayName(topic.author_display_name, topic.author),
+        face = name_face,
+        bold = true,
+        max_width = math.floor(col_w * 0.6),
+    }
+    table.insert(name_line, name)
+    local used = name:getSize().w
+    if topic.author_premium then
+        local seal = verifiedSeal(name_face)
+        table.insert(name_line, HorizontalSpan:new{ width = Size.span.horizontal_small })
+        table.insert(name_line, seal)
+        used = used + Size.span.horizontal_small + seal:getSize().w
+    end
+    table.insert(name_line, HorizontalSpan:new{ width = Size.span.horizontal_small })
+    table.insert(name_line, TextWidget:new{
+        text = T(_("@%1 · %2"), topic.author or "?", relativeTime(topic.created_at)),
+        face = Font:getFace("cfont", 14),
+        fgcolor = dim,
+        max_width = math.max(col_w - used - Size.span.horizontal_small, 1),
+    })
+
+    -- Vertical padding makes the tap target taller than the text; right padding spaces them.
+    local function action(text, callback)
+        return self:wrapTappable(FrameContainer:new{
+            bordersize = 0,
+            padding = Size.padding.small,
+            padding_left = 0,
+            padding_right = 3 * pad,
+            TextWidget:new{ text = text, face = Font:getFace("cfont", 14), fgcolor = dim },
+        }, callback)
+    end
+
+    local col = VerticalGroup:new{
+        align = "left",
+        name_line,
+        VerticalSpan:new{ width = space },
+        self:postBody(topic, col_w, true),
+    }
+    local meta = self:postMeta(topic, col_w, Screen:scaleBySize(56))
+    if meta then
+        table.insert(col, VerticalSpan:new{ width = space })
+        table.insert(col, meta)
+    end
+    table.insert(col, VerticalSpan:new{ width = space })
+    table.insert(col, HorizontalGroup:new{
+        action(likeLabel(topic), function() self:toggleTopicLike(topic, rerender) end),
+        action(T(_("Comentários (%1)"), topic.num_comments or 0), function() self:openThread(topic) end),
+    })
+
+    local card = FrameContainer:new{
+        bordersize = 0,
+        padding = pad,
+        padding_bottom = Size.padding.small,
+        background = Blitbuffer.COLOR_WHITE,
+        HorizontalGroup:new{
+            align = "top",
+            Avatar.widget(Avatar.ensureLocal(topic.author, topic.author_avatar_url), avatar_size, topic.author),
+            HorizontalSpan:new{ width = gap },
+            col,
+        },
+    }
     return VerticalGroup:new{
-        self:wrapTappable(self:buildFeedCard(topic, row_w), function() self:openThread(topic) end),
-        self:buttonRow({
-            { text = likeLabel(topic), callback = function() self:toggleTopicLike(topic, rerender) end },
-            { text = T(_("Comentários (%1)"), topic.num_comments or 0), callback = function() self:openThread(topic) end },
-        }, row_w, container),
+        self:wrapTappable(card, function() self:openThread(topic) end),
         self:separator(row_w),
     }
 end
@@ -1264,9 +1362,6 @@ function Inkwell:loadHomePage(offset, feed)
         end
         local page, page_err = ForumClient.listTopics(offset, HOME_PAGE_SIZE, feed)
         local state = { feed = feed, offset = offset, page = page }
-        if page and offset == 0 and feed == "all" then
-            state.trending = ForumClient.trending()
-        end
         Trapper:clear()
         if not page then
             UIManager:show(InfoMessage:new{ text = T(_("Falha ao buscar dados: %1"), page_err) })
@@ -1277,8 +1372,8 @@ function Inkwell:loadHomePage(offset, feed)
     end)
 end
 
--- Social timeline with two tabs: "Seguindo" (people you follow) and "Descobrir" (everyone,
--- plus trending tags/books). Paginated HOME_PAGE_SIZE posts at a time;
+-- Social timeline with two tabs: "Seguindo" (people you follow) and "Descobrir" (everyone).
+-- Paginated HOME_PAGE_SIZE posts at a time;
 -- each page rebuilds the whole screen.
 function Inkwell:showHome(state)
     local page = state.page
@@ -1298,7 +1393,6 @@ function Inkwell:showHome(state)
             reload(0, new_feed)
         end
     end
-    local unread = page.unread_notifications or 0
     modal = self:showModal{
         title = _("Inkwell"),
         subtitle = T(_("@%1"), ForumClient.username()),
@@ -1310,31 +1404,9 @@ function Inkwell:showHome(state)
                     { text = (feed == "all" and "● " or "") .. _("Descobrir"), callback = function() switchTo("all") end },
                 }, row_w, container),
             }
-            local trending = state.trending
-            if trending and #(trending.hashtags or {}) > 0 then
-                table.insert(rows, self:sectionRow(_("Em alta"), row_w))
-                -- Compact on purpose: top 4 tags in one light row, top 3 book titles.
-                local tags = {}
-                for i = 1, math.min(4, #trending.hashtags) do
-                    local t = trending.hashtags[i]
-                    table.insert(tags, { text = "#" .. t.tag, callback = function() self:openTag(t.tag) end })
-                end
-                table.insert(rows, self:buttonRow(tags, row_w, container))
-                local books = trending.books or {}
-                for i = 1, math.min(3, #books) do
-                    local b = books[i]
-                    table.insert(rows, self:wrapTappable(
-                        self:textRow("📖 " .. b.title, row_w, { size = 14, dim = true, compact = true }),
-                        function() self:openBook(b.title, b.author) end))
-                end
-                table.insert(rows, self:separator(row_w))
-            end
             local empty = feed == "following"
                 and _("Nada por aqui ainda. Siga leitores para ver os posts deles, ou veja a aba Descobrir.")
                 or _("Nenhum post ainda.")
-            if feed == "all" and offset == 0 then
-                table.insert(rows, self:sectionRow(_("Posts recentes"), row_w))
-            end
             util.arrayAppend(rows, self:feedItems(page.topics, row_w, container, rerender, empty))
             return rows
         end,
@@ -1342,14 +1414,6 @@ function Inkwell:showHome(state)
             {
                 -- home stays open underneath, so cancelling the composer lands back on the feed
                 { text = _("Novo post…"), callback = function() self:openPublishDialog() end },
-                {
-                    text = unread > 0 and T(_("Atividade (%1)"), unread) or _("Atividade"),
-                    callback = function()
-                        page.unread_notifications = 0
-                        rerender()
-                        self:openActivity()
-                    end,
-                },
             },
             {
                 {
@@ -1514,7 +1578,7 @@ function Inkwell:showPost(topic, comment_page)
         build_rows = function(row_w, container)
             local Size = require("ui/size")
             local rows = {
-                self:buildFeedCard(topic, row_w, true),
+                self:buildFeedCard(topic, row_w),
                 self:buttonRow({
                     { text = likeLabel(topic), callback = function() self:toggleTopicLike(topic, rerender) end },
                     { text = _("Comentar"), callback = closeThen(function() self:openCommentComposer(topic, nil, reopen) end) },
@@ -2208,6 +2272,113 @@ function Inkwell:openCommunities()
     end)
 end
 
+-- One community tile, styled after bookshelf.koplugin's cover grid: bordered cover (or the
+-- title's initial) with an offset drop shadow, a member-count badge on the corner, 🔒 for
+-- private ones, then a bold one-line title and a dim meta line.
+function Inkwell:communityCard(c, w)
+    local Blitbuffer = require("ffi/blitbuffer")
+    local CenterContainer = require("ui/widget/container/centercontainer")
+    local Font = require("ui/font")
+    local FrameContainer = require("ui/widget/container/framecontainer")
+    local Geom = require("ui/geometry")
+    local LineWidget = require("ui/widget/linewidget")
+    local OverlapGroup = require("ui/widget/overlapgroup")
+    local Size = require("ui/size")
+    local TextWidget = require("ui/widget/textwidget")
+    local VerticalGroup = require("ui/widget/verticalgroup")
+    local VerticalSpan = require("ui/widget/verticalspan")
+
+    local shadow = Screen:scaleBySize(4)
+    local box_w = w - shadow
+    local box_h = math.floor(box_w * 0.6) -- community covers are wide banners
+    local border = Size.border.thin
+    local inner_w, inner_h = box_w - 2 * border, box_h - 2 * border
+    local art = c.cover_url and require("avatar").cover(c.cover_url, inner_w, inner_h)
+    local cover = FrameContainer:new{
+        bordersize = border,
+        color = Blitbuffer.COLOR_BLACK,
+        padding = 0,
+        radius = Size.radius.window,
+        background = art and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_LIGHT_GRAY,
+        CenterContainer:new{
+            dimen = Geom:new{ w = inner_w, h = inner_h },
+            art or TextWidget:new{
+                text = util.splitToChars(c.title)[1]:upper(),
+                face = Font:getFace("cfont", math.floor(inner_h * 0.45)),
+                bold = true,
+            },
+        },
+    }
+
+    local pad = Size.padding.small
+    local function badge(text)
+        return FrameContainer:new{
+            bordersize = border,
+            color = Blitbuffer.COLOR_BLACK,
+            background = Blitbuffer.COLOR_WHITE,
+            radius = Screen:scaleBySize(3),
+            padding = 0,
+            padding_left = Size.padding.default,
+            padding_right = Size.padding.default,
+            TextWidget:new{ text = text, face = Font:getFace("cfont", 12), bold = true },
+        }
+    end
+    local members = badge("👥 " .. c.num_members)
+    members.overlap_offset = { box_w - members:getSize().w - pad, pad }
+    local layers = {
+        dimen = Geom:new{ w = w, h = box_h + shadow },
+        LineWidget:new{
+            dimen = Geom:new{ w = box_w, h = box_h },
+            background = Blitbuffer.COLOR_DARK_GRAY,
+            overlap_offset = { shadow, shadow },
+        },
+        cover,
+        members,
+    }
+    if c.is_private then
+        local lock = badge("🔒")
+        lock.overlap_offset = { pad, pad }
+        table.insert(layers, lock)
+    end
+
+    local meta = c.is_pending and _("Aguardando aprovação") or T(_("%1 posts · @%2"), c.num_topics, c.owner)
+    return VerticalGroup:new{
+        align = "left",
+        OverlapGroup:new(layers),
+        VerticalSpan:new{ width = Size.padding.default },
+        TextWidget:new{ text = c.title, face = Font:getFace("cfont", 16), bold = true, max_width = box_w },
+        TextWidget:new{
+            text = meta,
+            face = Font:getFace("cfont", 13),
+            fgcolor = Blitbuffer.COLOR_DARK_GRAY,
+            max_width = box_w,
+        },
+    }
+end
+
+-- Community tiles two per row; tapping one calls on_open(community).
+function Inkwell:communityGrid(communities, row_w, on_open)
+    local HorizontalGroup = require("ui/widget/horizontalgroup")
+    local HorizontalSpan = require("ui/widget/horizontalspan")
+    local Size = require("ui/size")
+    local VerticalSpan = require("ui/widget/verticalspan")
+
+    local gap = Size.padding.large
+    local card_w = math.floor((row_w - 3 * gap) / 2)
+    local rows = {}
+    for i = 1, #communities, 2 do
+        local line = HorizontalGroup:new{ align = "top", HorizontalSpan:new{ width = gap } }
+        for j = i, math.min(i + 1, #communities) do
+            local c = communities[j]
+            table.insert(line, self:wrapTappable(self:communityCard(c, card_w), function() on_open(c) end))
+            table.insert(line, HorizontalSpan:new{ width = gap })
+        end
+        table.insert(rows, line)
+        table.insert(rows, VerticalSpan:new{ width = gap })
+    end
+    return rows
+end
+
 function Inkwell:showCommunityList(communities)
     local mine, others = {}, {}
     for _idx, c in ipairs(communities) do
@@ -2223,30 +2394,11 @@ function Inkwell:showCommunityList(communities)
         title = _("Comunidades"),
         on_menu = function() self:openNavMenu() end,
         build_rows = function(row_w, container)
-            local function communityRow(c)
-                local text = (c.is_private and "🔒 " or "") .. c.title .. "\n"
-                    .. (c.description ~= "" and (c.description .. "\n") or "")
-                    .. T(_("%1 membros · %2 posts · criada por @%3"), c.num_members, c.num_topics, c.owner)
-                    .. (c.is_pending and ("\n" .. _("Pedido enviado, aguardando aprovação")) or "")
-                local row = self:textRow(text, row_w)
-                local thumb_size = Screen:scaleBySize(64)
-                local thumb = c.cover_url and require("avatar").cover(c.cover_url, thumb_size, thumb_size)
-                if thumb then
-                    local Size = require("ui/size")
-                    row = require("ui/widget/horizontalgroup"):new{
-                        align = "center",
-                        require("ui/widget/horizontalspan"):new{ width = Size.padding.large },
-                        thumb,
-                        self:textRow(text, row_w - Size.padding.large - thumb:getSize().w),
-                    }
-                end
-                return self:wrapTappable(row, function()
-                    UIManager:close(modal)
-                    self:openCommunity(c.id)
-                end)
-            end
-
             local rows = { self:sectionRow(_("Minhas comunidades"), row_w) }
+            local function open(c)
+                UIManager:close(modal)
+                self:openCommunity(c.id)
+            end
             if #mine == 0 then
                 table.insert(rows, self:textRow(
                     _("Você ainda não faz parte de nenhuma comunidade. Crie uma do zero ou participe de uma abaixo."),
@@ -2255,15 +2407,11 @@ function Inkwell:showCommunityList(communities)
                     { text = _("Criar comunidade do zero"), callback = openCreate },
                 }, row_w, container))
             end
-            for _idx, c in ipairs(mine) do
-                table.insert(rows, communityRow(c))
-            end
+            util.arrayAppend(rows, self:communityGrid(mine, row_w, open))
 
             if #others > 0 then
                 table.insert(rows, self:sectionRow(_("Descobrir"), row_w))
-                for _idx, c in ipairs(others) do
-                    table.insert(rows, communityRow(c))
-                end
+                util.arrayAppend(rows, self:communityGrid(others, row_w, open))
             end
             return rows
         end,

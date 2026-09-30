@@ -101,7 +101,6 @@ server.
 | POST / DELETE      | `/users/:username/follow`                           | follow / unfollow                                            |
 | GET                | `/users/:username/followers\|following`             | people lists                                                 |
 | GET                | `/books?title=`                                     | book page                                                    |
-| GET                | `/trending`                                         | trending tags and books                                      |
 | POST               | `/admin/users`                                      | create moderator (only called if `can_create_moderator`)     |
 
 Image URLs (`avatar_url`, `cover_url`, `book_cover_url`) must be absolute and public,

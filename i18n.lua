@@ -67,15 +67,12 @@ local EN = {
     ["Publicado no Inkwell!"] = "Posted to Inkwell!",
     ["Novo post…"] = "New post…",
     ["Atividade"] = "Activity",
-    ["Atividade (%1)"] = "Activity (%1)",
     ["‹ anterior"] = "‹ previous",
     ["próxima ›"] = "next ›",
     ["pág. %1 de %2"] = "page %1 of %2",
     ["Descobrir"] = "Discover",
-    ["Em alta"] = "Trending",
     ["Nada por aqui ainda. Siga leitores para ver os posts deles, ou veja a aba Descobrir."] =
         "Nothing here yet. Follow readers to see their posts, or check the Discover tab.",
-    ["Posts recentes"] = "Recent posts",
 
     -- reviews
     ["Resenhas"] = "Reviews",
@@ -203,7 +200,8 @@ local EN = {
     ["Criando moderador…"] = "Creating moderator…",
 
     -- communities
-    ["%1 membros · %2 posts · criada por @%3"] = "%1 members · %2 posts · created by @%3",
+    ["%1 posts · @%2"] = "%1 posts · @%2",
+    ["Aguardando aprovação"] = "Awaiting approval",
     ["Minhas comunidades"] = "My communities",
     ["Você ainda não faz parte de nenhuma comunidade. Crie uma do zero ou participe de uma abaixo."] =
         "You're not in any community yet. Create one from scratch or join one below.",
@@ -223,7 +221,6 @@ local EN = {
     ["Participar"] = "Join",
     ["Pedir para participar"] = "Ask to join",
     ["Cancelar pedido"] = "Cancel request",
-    ["Pedido enviado, aguardando aprovação"] = "Request sent, waiting for approval",
     ["Pedido enviado. @%1 precisa aprovar."] = "Request sent. @%1 needs to approve it.",
     ["Pedido cancelado."] = "Request cancelled.",
     ["Tornar pública"] = "Make public",

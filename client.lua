@@ -411,11 +411,6 @@ function ForumClient.setCommunityCover(id, cover)
     return fetch("PUT", "/communities/" .. id .. "/cover", "community", cover)
 end
 
--- Returns { hashtags = {{tag, count}}, books = {{title, author, count}} }.
-function ForumClient.trending()
-    return fetch("GET", "/trending")
-end
-
 local CONTENT_TYPE_BY_EXT = {
     jpg = "image/jpeg",
     jpeg = "image/jpeg",
